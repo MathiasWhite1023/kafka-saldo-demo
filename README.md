@@ -1,357 +1,709 @@
-# 🚀 Kafka Saldo Demo - Tópico Compactado + API REST
+# 🐍 Kafka Saldo Demo - Versão Python
 
-Este projeto demonstra o uso de **Apache Kafka com tópico compactado** como fonte de estado para um sistema de consulta de saldos. Utilizamos Python com `confluent-kafka` e Flask para criar um serviço REST que reconstrói e mantém o estado em memória.
+Sistema de consulta de saldos bancários usando **Apache Kafka com tópico compactado** como fonte única de verdade.
 
-## 📋 Arquitetura
+> **💡 Esta é a implementação em Python com Flask.**  
+> Para a versão Java/Spring Boot, veja a branch [`java-version`](../../tree/java-version)
+
+---
+
+## 📚 Índice
+
+- [Por Que Kafka?](#-por-que-kafka)
+- [Como Funciona](#-como-funciona)
+- [Tecnologias Usadas](#-tecnologias-usadas)
+- [Instalação](#-instalação)
+- [Como Usar](#-como-usar)
+- [Testando](#-testando)
+- [Entendendo o Código](#-entendendo-o-código)
+
+---
+
+## 🎯 Por Que Kafka?
+
+### Problema: Como manter saldos bancários sempre atualizados?
+
+**Abordagem tradicional (banco de dados):**
+```
+Cliente 1: R$ 100,00  ← valor atual
+Cliente 2: R$ 50,00   ← valor atual
+```
+❌ Não há histórico de mudanças  
+❌ Se o banco cair, perdemos o estado  
+❌ Difícil de replicar para múltiplos serviços  
+
+**Abordagem com Kafka (Event Sourcing):**
+```
+Tópico 'contas' (compactado):
+  cliente_1 → {"saldo": 200.0}  ← substituído
+  cliente_1 → {"saldo": 150.0}  ← última versão (mantida)
+  cliente_2 → {"saldo": 50.0}   ← última versão (mantida)
+```
+✅ Log de eventos como fonte única de verdade  
+✅ Compactação mantém apenas último estado  
+✅ Qualquer serviço pode reconstruir o estado completo  
+✅ Alta disponibilidade e tolerância a falhas  
+
+### 🔑 Conceito Principal: Tópico Compactado
+
+Kafka com **log compaction** garante:
+1. **Apenas a última mensagem** por chave (cliente_id) é mantida
+2. **Reconstrução completa** do estado lendo o tópico do início
+3. **Atualizações em tempo real** conforme novas mensagens chegam
+
+**Exemplo:**
+```python
+# Envio 3 mensagens para o mesmo cliente:
+producer.send(key="1", value={"saldo": 100.0})  # Será removida
+producer.send(key="1", value={"saldo": 200.0})  # Será removida
+producer.send(key="1", value={"saldo": 150.0})  # ✅ Esta fica!
+
+# Ao consumir o tópico, só veremos a última:
+consumer.poll() # → {"cliente_id": "1", "saldo": 150.0}
+```
+
+---
+
+## 🏗️ Como Funciona
+
+### Arquitetura do Sistema
 
 ```
-┌──────────┐     produz      ┌──────────────────┐
-│ Producer │ ───────────────> │ Kafka (compacted)│
-└──────────┘                  │  topic: contas   │
-                              └────────┬─────────┘
-                                       │
-                                       │ consome
-                                       ▼
-                              ┌─────────────────┐
-                              │ Consumer Service │
-                              │  (Flask + API)   │
-                              └────────┬─────────┘
-                                       │
-                              ┌────────▼─────────┐
-                              │ GET /saldo/{id}  │
-                              └──────────────────┘
+┌─────────────────┐
+│  Producer       │  1) Envia atualizações de saldo
+│  (Python CLI)   │     com cliente_id como chave
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────────────────┐
+│  Kafka Topic: "contas" (compacted)      │
+│  ┌─────────────────────────────────┐   │
+│  │ key="1" → {"saldo": 150.0}      │   │  2) Kafka mantém
+│  │ key="2" → {"saldo": 50.0}       │   │     apenas última
+│  └─────────────────────────────────┘   │     mensagem/chave
+└────────┬────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────┐
+│  Consumer Service (Flask)               │
+│  ┌───────────────────────────────────┐  │
+│  │  1. Startup:                      │  │  3) Reconstrói
+│  │     - Lê tópico do início         │  │     estado em
+│  │     - Reconstrói estado em dict   │  │     memória
+│  │                                   │  │
+│  │  2. Runtime:                      │  │  4) Atualiza
+│  │     - Escuta novas mensagens      │  │     estado em
+│  │     - Atualiza dict em memória    │  │     tempo real
+│  └───────────────────────────────────┘  │
+│                                          │
+│  API REST (Flask):                       │
+│    GET /saldo/{id}  → Consulta saldo    │  5) Expõe API
+│    GET /saldos      → Lista todos       │     para consulta
+└──────────────────────────────────────────┘
 ```
 
-## 📁 Estrutura do Projeto
+### Fluxo de Dados
 
-```
-kafka-saldo-demo/
-├── docker-compose.yml      # Kafka + Zookeeper
-├── create_topic.sh         # Script para criar tópico compactado
-├── start.sh               # ⭐ Script para iniciar todo o sistema
-├── stop.sh                # ⭐ Script para parar todo o sistema
-├── .env                    # Configurações
-├── requirements.txt        # Dependências Python
-├── producer.py            # Produz atualizações de saldo
-├── producer_interactive.py # ⭐ Producer interativo (CLI)
-├── consumer_service.py    # Reconstrói estado e expõe API
-├── README.md              # Esta documentação
-└── .vscode/
-    ├── tasks.json         # Tasks do VS Code
-    └── launch.json        # Configurações de debug
+**1. Producer envia atualização:**
+```python
+# producer.py ou producer_interactive.py
+producer.send(
+    topic='contas',
+    key='1',                          # cliente_id
+    value='{"cliente_id":"1","saldo":150.0,"timestamp":"..."}'
+)
 ```
 
-## 🚦 Como Rodar
+**2. Kafka armazena e compacta:**
+- Mensagens com mesma chave (cliente_id) são compactadas
+- Apenas a mais recente é mantida
 
-### 🎯 Início Rápido (Recomendado)
+**3. Consumer reconstrói estado:**
+```python
+# consumer_service.py - Startup
+estado = {}
+for msg in consumer.poll_from_beginning():
+    estado[msg.key] = msg.value  # Dict em memória
+# estado = {"1": {"saldo": 150.0}, "2": {"saldo": 50.0}}
+```
 
-Use o script automatizado que faz tudo pra você:
+**4. API responde consultas:**
+```python
+# consumer_service.py - API
+@app.route("/saldo/<cliente_id>")
+def get_saldo(cliente_id):
+    return estado.get(cliente_id)  # Busca em memória
+```
+
+---
+
+## 💻 Tecnologias Usadas
+
+### Core
+- **Python 3.8+** - Linguagem principal
+- **Apache Kafka** - Message broker com tópico compactado
+- **Zookeeper** - Coordenação do cluster Kafka
+
+### Python Libraries
+- **Flask** - Web framework para API REST
+- **Flask-CORS** - Habilitar CORS na API
+- **confluent-kafka** - Cliente Kafka para Python
+- **python-dotenv** - Gerenciar variáveis de ambiente
+
+### DevOps
+- **Docker Compose** - Orquestração Kafka + Zookeeper
+- **Shell Scripts** - Automação (start.sh, stop.sh)
+
+### Frontend (Bonus)
+- **HTML/CSS/JavaScript** - Dashboard web interativo
+
+---
+
+## 📦 Instalação
+
+### Pré-requisitos
+
+- **Docker** e **Docker Compose** instalados
+- **Python 3.8+** instalado
+- **Git** (para clonar o repositório)
+
+### Passo 1: Clonar o Repositório
+
+```bash
+git clone https://github.com/MathiasWhite1023/kafka-saldo-demo.git
+cd kafka-saldo-demo
+git checkout python-version
+```
+
+### Passo 2: Iniciar Kafka
+
+```bash
+# Inicia Kafka e Zookeeper em containers Docker
+docker-compose up -d
+
+# Aguarda Kafka estar pronto (5-10 segundos)
+sleep 10
+
+# Cria o tópico compactado
+./create_topic.sh
+```
+
+**O que acontece:**
+- Kafka sobe na porta `9092`
+- Zookeeper sobe na porta `2181`
+- Tópico `contas` é criado com `cleanup.policy=compact`
+
+### Passo 3: Instalar Dependências Python
+
+```bash
+# Criar ambiente virtual
+python3 -m venv .venv
+
+# Ativar ambiente virtual
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate   # Windows
+
+# Instalar dependências
+pip install -r requirements.txt
+```
+
+**Dependências instaladas:**
+```
+Flask==2.3.2
+Flask-CORS==4.0.0
+confluent-kafka==2.1.1
+python-dotenv==1.0.0
+```
+
+---
+
+## 🚀 Como Usar
+
+### Opção 1: Script Automatizado (Recomendado)
 
 ```bash
 ./start.sh
 ```
 
-Isso irá:
-- ✅ Iniciar Kafka e Zookeeper
-- ✅ Criar o tópico compactado
-- ✅ Criar virtualenv (se necessário)
-- ✅ Instalar dependências
-- ✅ Enviar mensagens de teste
-- ✅ Iniciar a API REST
+Este script faz tudo automaticamente:
+1. ✅ Inicia Kafka e Zookeeper
+2. ✅ Cria o tópico compactado
+3. ✅ Cria virtualenv e instala dependências
+4. ✅ Envia mensagens de teste
+5. ✅ Inicia a API REST
 
-Para parar tudo:
+### Opção 2: Passo a Passo Manual
 
-```bash
-./stop.sh
-```
-
-### 📚 Passo a Passo Manual
-
-Se preferir fazer manualmente:
-
-### 1️⃣ Pré-requisitos
-
-- Docker e Docker Compose instalados
-- Python 3.8+ instalado
-- VS Code (opcional, mas recomendado)
-
-### 2️⃣ Iniciar Kafka
+#### 1. Enviar Mensagens de Teste
 
 ```bash
-docker-compose up -d
+# Ativar virtualenv
+source .venv/bin/activate
+
+# Enviar mensagens via producer batch
+python producer.py
 ```
 
-Verificar containers:
-```bash
-docker ps
+**Saída esperada:**
+```
+Produzido -> key=1 value={'cliente_id': '1', 'saldo': 200.0, ...}
+Produzido -> key=2 value={'cliente_id': '2', 'saldo': 50.0, ...}
+Produzido -> key=1 value={'cliente_id': '1', 'saldo': 150.0, ...}
+Mensagens enviadas.
 ```
 
-### 3️⃣ Criar Tópico Compactado
-
-Tornar o script executável:
-```bash
-chmod +x create_topic.sh
-```
-
-Executar:
-```bash
-./create_topic.sh
-```
-
-**Alternativa manual:**
-```bash
-docker-compose exec kafka bash
-kafka-topics --create --topic contas --bootstrap-server localhost:9092 \
-  --partitions 1 --replication-factor 1 --config cleanup.policy=compact
-exit
-```
-
-### 4️⃣ Configurar Python
-
-Criar virtualenv e instalar dependências:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # No macOS/Linux
-pip install -r requirements.txt
-```
-
-### 5️⃣ Iniciar Consumer Service (API)
+#### 2. Iniciar Consumer Service (API)
 
 ```bash
 python consumer_service.py
 ```
 
-Isso irá:
-- ✅ Reconstruir estado a partir do tópico
-- ✅ Iniciar consumer em background
-- ✅ Expor API em `http://localhost:5000`
-
-### 6️⃣ Produzir Mensagens
-
-**Opção 1: Producer Automático**
-
-```bash
-python producer.py
+**Saída esperada:**
+```
+Reconstruindo estado a partir do tópico...
+Reconstrução finalizada. Número de chaves: 2
+Consumer streaming iniciado, aguardando novas mensagens...
+ * Running on http://127.0.0.1:5001
 ```
 
-**Opção 2: Producer Interativo** ⭐
+#### 3. Adicionar Novos Clientes (Opcional)
 
 ```bash
+# Em outro terminal
+source .venv/bin/activate
 python producer_interactive.py
-# Digite o ID do cliente e o saldo quando solicitado
 ```
 
-### 7️⃣ Testar API
-
-```bash
-# Via curl
-curl http://localhost:5000/saldo/1
-curl http://localhost:5000/saldo/2
-
-# Ou abra no navegador:
-# http://localhost:5000/saldo/1
+**Uso:**
 ```
+Cliente ID: 3
+Saldo: 500.00
+✅ Mensagem enviada!
 
-**Resposta esperada:**
-```json
-{
-  "cliente_id": "1",
-  "saldo": 150.0,
-  "timestamp": "2025-10-14T10:30:45"
-}
+Cliente ID: 4
+Saldo: 1000.00
+✅ Mensagem enviada!
 ```
-
-## 🎯 Endpoints da API
-
-### GET /saldo/{cliente_id}
-
-Retorna o saldo atual de um cliente.
-
-**Sucesso (200):**
-```json
-{
-  "cliente_id": "1",
-  "saldo": 150.0,
-  "timestamp": "2025-10-14T10:30:45"
-}
-```
-
-**Não encontrado (404):**
-```json
-{
-  "error": "cliente não encontrado"
-}
-```
-
-## 🛠️ Usando VS Code
-
-### Tasks Disponíveis
-
-Pressione `Cmd+Shift+P` (macOS) ou `Ctrl+Shift+P` (Windows/Linux) e digite "Run Task":
-
-- **Docker Compose Up** - Inicia Kafka
-- **Create Topic** - Cria tópico compactado
-- **Run Consumer Service** - Inicia API
-- **Run Producer** - Envia mensagens
-
-### Debug
-
-Use F5 para iniciar debug do `consumer_service.py` ou `producer.py`
-
-## ⚙️ Configuração
-
-Arquivo `.env`:
-
-```env
-BOOTSTRAP_SERVERS=localhost:9092
-TOPIC=contas
-GROUP=consulta-saldo
-```
-
-## 📊 Como Funciona
-
-### Tópico Compactado
-
-O Kafka mantém **apenas a última mensagem** de cada chave (cliente_id). Isso permite:
-
-- ✅ Estado compacto (não cresce indefinidamente)
-- ✅ Reconstrução rápida do estado
-- ✅ Histórico auditável (antes da compactação)
-
-### Reconstrução de Estado
-
-1. **Startup**: Consumer lê todo o tópico desde o início
-2. **Constrói mapa** em memória: `cliente_id → última_mensagem`
-3. **Consumer streaming** atualiza o mapa com novas mensagens
-4. **API** consulta o mapa em memória
-
-## ⚠️ Limitações e Riscos
-
-### 🔴 Estado em Memória
-
-- Restart do serviço = perda temporária de estado
-- Reconstrução pode demorar em tópicos grandes
-- Sem persistência local (considerar RocksDB/Kafka Streams)
-
-### 🔴 Sem Transações
-
-- Concorrência pode causar race conditions
-- Múltiplos producers = possíveis inconsistências
-- Não há isolamento ACID
-
-### 🔴 Compactação Eventual
-
-- Mensagens antigas permanecem até compactação
-- Processo não é instantâneo
-- Log pode crescer temporariamente
-
-### 🔴 Consistência
-
-- Não garante strong consistency
-- Eventual consistency apenas
-- Não substitui banco transacional
-
-## 🚀 Melhorias para Produção
-
-### 1. Persistência
-
-```python
-# Usar RocksDB ou Kafka Streams State Store
-# Evita reconstrução completa após restart
-```
-
-### 2. Múltiplas Partições
-
-```bash
-kafka-topics --create --topic contas \
-  --partitions 3 \  # múltiplas partições
-  --replication-factor 3
-```
-
-### 3. Segurança
-
-```python
-# TLS/SSL + SASL
-conf = {
-    'security.protocol': 'SASL_SSL',
-    'sasl.mechanism': 'PLAIN',
-    'sasl.username': 'user',
-    'sasl.password': 'pass'
-}
-```
-
-### 4. Monitoramento
-
-```python
-# Adicionar métricas Prometheus
-# Expor health checks
-# Logging estruturado
-```
-
-### 5. Kafka Streams / ksqlDB
-
-Considere usar ferramentas nativas do Kafka para materialização:
-
-```sql
--- ksqlDB
-CREATE TABLE saldos AS
-  SELECT cliente_id, LATEST_BY_OFFSET(saldo) as saldo
-  FROM contas_stream
-  GROUP BY cliente_id;
-```
-
-## 🧪 Comandos Úteis
-
-### Verificar Tópicos
-
-```bash
-docker-compose exec kafka kafka-topics --list --bootstrap-server localhost:9092
-```
-
-### Descrever Tópico
-
-```bash
-docker-compose exec kafka kafka-topics --describe \
-  --topic contas --bootstrap-server localhost:9092
-```
-
-### Consumir Manualmente
-
-```bash
-docker-compose exec kafka kafka-console-consumer \
-  --topic contas --from-beginning \
-  --bootstrap-server localhost:9092 \
-  --property print.key=true
-```
-
-### Produzir Manualmente
-
-```bash
-docker-compose exec kafka kafka-console-producer \
-  --topic contas --bootstrap-server localhost:9092 \
-  --property "parse.key=true" \
-  --property "key.separator=:"
-# Digite: 3:{"cliente_id":"3","saldo":300.0,"timestamp":"2025-10-14T10:00:00"}
-```
-
-### Limpar Ambiente
-
-```bash
-docker-compose down -v  # Remove containers e volumes
-```
-
-## 📚 Recursos Adicionais
-
-- [Confluent Kafka Python](https://docs.confluent.io/kafka-clients/python/current/overview.html)
-- [Kafka Log Compaction](https://kafka.apache.org/documentation/#compaction)
-- [Kafka Streams](https://kafka.apache.org/documentation/streams/)
-- [ksqlDB](https://ksqldb.io/)
-
-## 📝 Licença
-
-Projeto de demonstração - use livremente para aprendizado.
 
 ---
 
-**Dica Final:** Este projeto é ideal para **aprendizado e prototipagem**. Para produção, considere Kafka Streams ou ksqlDB para materialização robusta de estado! 🎯
+## 🧪 Testando
+
+### 1. Testar API via cURL
+
+**Consultar saldo de um cliente:**
+```bash
+curl http://localhost:5001/saldo/1
+```
+
+**Resposta:**
+```json
+{
+  "cliente_id": "1",
+  "saldo": 150.0,
+  "timestamp": "2025-10-14T15:20:57"
+}
+```
+
+**Listar todos os saldos:**
+```bash
+curl http://localhost:5001/saldos
+```
+
+**Resposta:**
+```json
+{
+  "total": 2,
+  "clientes": [
+    {"cliente_id": "1", "saldo": 150.0, "timestamp": "2025-10-14T15:20:57"},
+    {"cliente_id": "2", "saldo": 50.0, "timestamp": "2025-10-14T15:20:56"}
+  ]
+}
+```
+
+### 2. Dashboard Web
+
+**Iniciar servidor HTTP:**
+```bash
+python3 -m http.server 8080
+```
+
+**Acessar dashboard:**
+- Simples: http://localhost:8080/dashboard.html
+- Universal: http://localhost:8080/dashboard-universal.html
+
+**Features do Dashboard:**
+- 🔍 Busca de saldo por cliente ID
+- 📊 Visualização bonita dos dados
+- ⚡ Status da API em tempo real
+- 🎨 Interface moderna e responsiva
+
+### 3. Demonstrar Compactação do Kafka
+
+**Enviar múltiplas atualizações para o mesmo cliente:**
+```bash
+python producer_interactive.py
+
+# Digite:
+Cliente ID: 5
+Saldo: 100.00
+
+Cliente ID: 5
+Saldo: 200.00
+
+Cliente ID: 5
+Saldo: 300.00
+```
+
+**Consultar saldo:**
+```bash
+curl http://localhost:5001/saldo/5
+```
+
+**Resultado:**
+```json
+{
+  "cliente_id": "5",
+  "saldo": 300.0,  # ← Apenas o último valor!
+  "timestamp": "..."
+}
+```
+
+**✨ Isso prova que o Kafka está compactando:** apenas a última mensagem por chave é mantida!
+
+### 4. Testar Reconstrução de Estado
+
+**Parar o consumer:**
+```bash
+pkill -f consumer_service.py
+```
+
+**Reiniciar:**
+```bash
+python consumer_service.py
+```
+
+**Observar logs:**
+```
+Reconstruindo estado a partir do tópico...
+Reconstrução finalizada. Número de chaves: 5  # ← Estado reconstruído!
+```
+
+**Consultar novamente:**
+```bash
+curl http://localhost:5001/saldo/5
+# ✅ Dados ainda estão lá! Estado foi reconstruído do Kafka
+```
+
+---
+
+## 🔍 Entendendo o Código
+
+### 1. Producer (`producer_interactive.py`)
+
+```python
+from confluent_kafka import Producer
+import json, os
+from datetime import datetime
+
+# Configuração do producer
+producer = Producer({'bootstrap.servers': 'localhost:9092'})
+
+# Função para enviar mensagem
+def send_update(cliente_id, saldo):
+    value = {
+        "cliente_id": cliente_id,
+        "saldo": saldo,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # KEY = cliente_id (importante para compactação!)
+    producer.produce(
+        topic='contas',
+        key=str(cliente_id),           # Chave = ID do cliente
+        value=json.dumps(value)        # Valor = JSON com saldo
+    )
+    producer.flush()  # Garante envio
+```
+
+**🔑 Ponto-chave:** A `key` é o cliente_id! Isso permite ao Kafka compactar mensagens do mesmo cliente.
+
+### 2. Consumer Service (`consumer_service.py`)
+
+**Reconstrução de Estado (Startup):**
+```python
+def rebuild_state():
+    consumer = Consumer({
+        'bootstrap.servers': 'localhost:9092',
+        'group.id': 'consulta-saldo-rebuild',
+        'auto.offset.reset': 'earliest'  # Lê do início!
+    })
+    
+    consumer.assign([TopicPartition('contas', 0, 0)])  # Partição 0, offset 0
+    
+    estado = {}
+    while True:
+        msg = consumer.poll(1.0)
+        if msg is None:
+            break  # Fim do tópico
+        
+        key = msg.key().decode('utf-8')
+        value = json.loads(msg.value().decode('utf-8'))
+        estado[key] = value  # Última mensagem por key
+    
+    return estado  # Dict em memória
+```
+
+**Streaming Consumer (Runtime):**
+```python
+def run_streaming_consumer():
+    consumer = Consumer({
+        'bootstrap.servers': 'localhost:9092',
+        'group.id': 'consulta-saldo',
+        'auto.offset.reset': 'latest'  # Só novas mensagens
+    })
+    
+    consumer.subscribe(['contas'])
+    
+    while True:
+        msg = consumer.poll(1.0)
+        if msg is None:
+            continue
+        
+        key = msg.key().decode('utf-8')
+        value = json.loads(msg.value().decode('utf-8'))
+        
+        with estado_lock:
+            estado[key] = value  # Atualiza estado em memória
+        
+        print(f"Atualizado: {key} -> {value}")
+```
+
+**API REST (Flask):**
+```python
+from flask import Flask, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)  # Permite chamadas do dashboard web
+
+@app.route("/saldo/<cliente_id>")
+def get_saldo(cliente_id):
+    with estado_lock:
+        data = estado.get(str(cliente_id))
+    
+    if data:
+        return jsonify(data)
+    else:
+        return jsonify({"error": "cliente não encontrado"}), 404
+
+@app.route("/saldos")
+def get_all():
+    with estado_lock:
+        all_data = [{"cliente_id": k, **v} for k, v in estado.items()]
+    return jsonify({"total": len(all_data), "clientes": all_data})
+```
+
+### 3. Docker Compose (`docker-compose.yml`)
+
+```yaml
+version: '3'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_CLEANUP_POLICY: compact  # ← Compactação!
+```
+
+### 4. Criação do Tópico (`create_topic.sh`)
+
+```bash
+docker exec kafka-saldo-demo-kafka-1 \
+  kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic contas \
+    --partitions 1 \
+    --replication-factor 1 \
+    --config cleanup.policy=compact \      # ← COMPACTAÇÃO!
+    --config segment.ms=10000 \            # Compacta a cada 10s
+    --config min.cleanable.dirty.ratio=0.01
+```
+
+**Configurações importantes:**
+- `cleanup.policy=compact` - Ativa compactação
+- `segment.ms=10000` - Força compactação frequente (10s)
+- `min.cleanable.dirty.ratio=0.01` - Compacta agressivamente
+
+---
+
+## 📊 Estrutura do Projeto
+
+```
+kafka-saldo-demo/ (branch python-version)
+│
+├── 📄 README.md                    # Esta documentação
+├── 📄 TESTING.md                   # Cenários de teste detalhados
+├── 📄 GUIA_COMPLETO.md            # Guia completo do sistema
+├── 📄 QUICK_START.md              # Início rápido
+├── 📄 STATUS.txt                  # Status do sistema
+│
+├── 🐍 CÓDIGO PYTHON
+│   ├── consumer_service.py        # Consumer + API REST
+│   ├── producer.py                # Producer batch (demo)
+│   └── producer_interactive.py    # Producer interativo (CLI)
+│
+├── 🐳 INFRAESTRUTURA
+│   ├── docker-compose.yml         # Kafka + Zookeeper
+│   ├── create_topic.sh            # Cria tópico compactado
+│   ├── start.sh                   # Inicia tudo
+│   └── stop.sh                    # Para tudo
+│
+├── 📦 DEPENDÊNCIAS
+│   ├── requirements.txt           # Libs Python
+│   └── .gitignore                 # Arquivos ignorados
+│
+└── 🌐 FRONTEND
+    ├── dashboard.html             # Dashboard simples
+    └── dashboard-universal.html   # Dashboard avançado
+```
+
+---
+
+## 🛑 Parar o Sistema
+
+```bash
+./stop.sh
+```
+
+Ou manualmente:
+```bash
+# Parar consumer
+pkill -f consumer_service.py
+
+# Parar Kafka
+docker-compose down
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Erro: "Connection refused" ao conectar no Kafka
+
+**Problema:** Kafka ainda não está pronto.
+
+**Solução:**
+```bash
+# Aguardar Kafka inicializar
+sleep 10
+
+# Verificar se está rodando
+docker ps | grep kafka
+```
+
+### Erro: "Port 5001 already in use"
+
+**Problema:** Porta 5001 em uso (AirPlay no macOS).
+
+**Solução 1 - Desabilitar AirPlay:**
+- System Settings → General → AirDrop & Handoff
+- Desligar "AirPlay Receiver"
+
+**Solução 2 - Mudar porta no código:**
+```python
+# consumer_service.py (última linha)
+app.run(port=5002)  # Usar porta 5002
+```
+
+### Erro: "No messages in topic"
+
+**Problema:** Tópico vazio.
+
+**Solução:**
+```bash
+# Enviar mensagens de teste
+python producer.py
+```
+
+### Consumer não reconstrói estado
+
+**Problema:** Consumer não está lendo do início.
+
+**Solução:**
+```python
+# Verificar auto.offset.reset em consumer_service.py
+'auto.offset.reset': 'earliest'  # ← Deve ser 'earliest'
+```
+
+---
+
+## 📚 Recursos Adicionais
+
+### Documentação
+
+- [Apache Kafka Docs](https://kafka.apache.org/documentation/)
+- [Confluent Kafka Python](https://docs.confluent.io/kafka-clients/python/current/overview.html)
+- [Log Compaction](https://kafka.apache.org/documentation/#compaction)
+- [Flask Quickstart](https://flask.palletsprojects.com/quickstart/)
+
+### Conceitos Avançados
+
+- **Event Sourcing** - Estado derivado de eventos
+- **CQRS** - Separação de leitura/escrita
+- **Stateful Services** - Serviços com estado derivado de eventos
+- **Log Compaction** - Manter apenas último estado por chave
+
+---
+
+## 🎯 Casos de Uso Reais
+
+Este padrão é usado em:
+
+1. **Banking/Fintech** - Saldos de contas, transações
+2. **E-commerce** - Inventário de produtos, carrinhos
+3. **Gaming** - Estado de jogadores, rankings
+4. **IoT** - Último estado de dispositivos
+5. **Monitoring** - Métricas e status de sistemas
+
+---
+
+## 🤝 Contribuindo
+
+Contribuições são bem-vindas!
+
+1. Fork o projeto
+2. Crie uma branch: `git checkout -b feature/MinhaFeature`
+3. Commit: `git commit -m 'Adiciona MinhaFeature'`
+4. Push: `git push origin feature/MinhaFeature`
+5. Abra um Pull Request
+
+---
+
+## 📝 Licença
+
+Este projeto é open source sob a licença MIT.
+
+---
+
+## 🌟 Outras Versões
+
+- ☕ **Versão Java/Spring Boot:** [java-version branch](../../tree/java-version)
+- 📖 **README Principal:** [main branch](../../tree/main)
+
+---
+
+**Desenvolvido com 🐍 e ❤️ - Demonstrando o poder do Apache Kafka!**
