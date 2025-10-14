@@ -1,8 +1,67 @@
-# 🚀 Kafka Saldo Demo - Tópico Compactado + API REST
+# 🚀 Kafka Saldo Demo
 
-Este projeto demonstra o uso de **Apache Kafka com tópico compactado** como fonte de estado para um sistema de consulta de saldos. Utilizamos Python com `confluent-kafka` e Flask para criar um serviço REST que reconstrói e mantém o estado em memória.
+Sistema de consulta de saldos usando **Apache Kafka com tópico compactado** + **API REST**.
 
-## 📋 Arquitetura
+Demonstração completa de como usar Kafka como fonte de estado para aplicações, disponível em **duas implementações**: Python e Java.
+
+---
+
+## 📌 Sobre o Projeto
+
+Este projeto demonstra o uso de **Apache Kafka com tópico compactado** (log compaction) como fonte de verdade para um sistema de consulta de saldos bancários.
+
+### 🎯 Conceito Principal
+
+O Kafka mantém apenas a **última mensagem** por chave (cliente_id) graças à compactação. Isso permite:
+
+- ✅ Reconstruir o estado completo consumindo o tópico do início
+- ✅ Manter estado atualizado em tempo real
+- ✅ Alta disponibilidade e tolerância a falhas
+- ✅ Escalabilidade horizontal
+
+---
+
+## 🌐 Duas Implementações Disponíveis
+
+Este repositório contém **duas versões completas e funcionais**:
+
+### 🐍 Versão Python
+**Branch:** [`python-version`](../../tree/python-version)
+
+- **Framework:** Flask
+- **Consumer:** confluent-kafka
+- **Porta API:** 5001
+- **Características:**
+  - ✅ Código simples e direto (~100 linhas)
+  - ✅ Rápido para prototipar
+  - ✅ Dashboard web interativo
+  - ✅ Producer interativo CLI
+  - ✅ Docker Compose incluído
+
+**📖 [Ver documentação Python](../../tree/python-version/README.md)**
+
+---
+
+### ☕ Versão Java
+**Branch:** [`java-version`](../../tree/java-version)
+
+- **Framework:** Spring Boot 3.2.0
+- **Consumer:** Spring Kafka
+- **Porta API:** 8081
+- **Características:**
+  - ✅ Arquitetura robusta e escalável
+  - ✅ Type-safe e testável
+  - ✅ Health check endpoint
+  - ✅ Logging estruturado
+  - ✅ Producer integrado
+  - ✅ CLI interativa opcional
+  - ✅ Pronto para produção
+
+**📖 [Ver documentação Java](../../tree/java-version/java-version/README.md)**
+
+---
+
+## 🏗️ Arquitetura
 
 ```
 ┌──────────┐     produz      ┌──────────────────┐
@@ -14,89 +73,213 @@ Este projeto demonstra o uso de **Apache Kafka com tópico compactado** como fon
                                        ▼
                               ┌─────────────────┐
                               │ Consumer Service │
-                              │  (Flask + API)   │
+                              │  (Python/Java)   │
                               └────────┬─────────┘
                                        │
                               ┌────────▼─────────┐
                               │ GET /saldo/{id}  │
+                              │ GET /saldos      │
                               └──────────────────┘
 ```
 
-## 📁 Estrutura do Projeto
+---
 
-```
-kafka-saldo-demo/
-├── docker-compose.yml      # Kafka + Zookeeper
-├── create_topic.sh         # Script para criar tópico compactado
-├── start.sh               # ⭐ Script para iniciar todo o sistema
-├── stop.sh                # ⭐ Script para parar todo o sistema
-├── .env                    # Configurações
-├── requirements.txt        # Dependências Python
-├── producer.py            # Produz atualizações de saldo
-├── producer_interactive.py # ⭐ Producer interativo (CLI)
-├── consumer_service.py    # Reconstrói estado e expõe API
-├── README.md              # Esta documentação
-└── .vscode/
-    ├── tasks.json         # Tasks do VS Code
-    └── launch.json        # Configurações de debug
+## � Início Rápido
+
+### 1️⃣ Escolha uma Versão
+
+**Para começar rápido e simples:**
+```bash
+git checkout python-version
 ```
 
-## 🚦 Como Rodar
+**Para arquitetura robusta e corporativa:**
+```bash
+git checkout java-version
+cd java-version
+```
 
-### 🎯 Início Rápido (Recomendado)
+### 2️⃣ Siga a Documentação
 
-Use o script automatizado que faz tudo pra você:
+Cada branch tem seu próprio README com instruções completas:
+
+- 🐍 **Python:** [python-version/README.md](../../tree/python-version/README.md)
+- ☕ **Java:** [java-version/README.md](../../tree/java-version/java-version/README.md)
+
+---
+
+## 📊 Comparação
+
+| Aspecto | Python 🐍 | Java ☕ |
+|---------|-----------|---------|
+| **Framework** | Flask | Spring Boot |
+| **Linhas de Código** | ~100 | ~500 |
+| **Startup Time** | < 2s | ~5-8s |
+| **Porta** | 5001 | 8081 |
+| **Type Safety** | ❌ | ✅ |
+| **Auto-reload** | ❌ | ✅ (DevTools) |
+| **Produção Ready** | Precisa WSGI | ✅ Built-in |
+| **Logging** | Básico | Estruturado |
+| **Health Check** | ❌ | ✅ |
+| **CLI Interativa** | ✅ | ✅ (Opcional) |
+| **Dashboard Web** | ✅ | ✅ (Compartilhado) |
+
+---
+
+## 🎯 Features Comuns
+
+Ambas as implementações oferecem:
+
+✅ **Consumo de Kafka** - Tópico compactado  
+✅ **Reconstrução de Estado** - Ao iniciar, lê todo o tópico  
+✅ **Atualização em Tempo Real** - Novas mensagens atualizam estado  
+✅ **API REST** - Consulta de saldos via HTTP  
+✅ **CORS** - Habilitado para integração web  
+✅ **Docker Compose** - Kafka + Zookeeper  
+✅ **Producer** - Para enviar atualizações  
+✅ **Dashboard Web** - Interface visual para consultas  
+✅ **Documentação Completa** - Tutoriais e guias  
+
+---
+
+## 🧪 Testando
+
+### Endpoints da API
+
+**Python (porta 5001):**
+```bash
+curl http://localhost:5001/saldo/1
+curl http://localhost:5001/saldos
+```
+
+**Java (porta 8081):**
+```bash
+curl http://localhost:8081/saldo/1
+curl http://localhost:8081/saldos
+curl http://localhost:8081/health
+```
+
+### Dashboard Web
+
+Ambas as versões incluem um dashboard interativo:
+
+```
+http://localhost:8080/dashboard-universal.html
+```
+
+O dashboard permite:
+- 🔍 Consultar saldo por cliente ID
+- 📋 Escolher entre API Python ou Java
+- 🎨 Visualização bonita dos dados
+- ⚡ Status em tempo real das APIs
+
+---
+
+## 🎓 Casos de Uso
+
+Este projeto demonstra padrões úteis para:
+
+- 📊 **Event Sourcing** - Kafka como log de eventos
+- 🗄️ **CQRS** - Separação de leitura/escrita
+- 💾 **Stateful Microservices** - Estado reconstruído de eventos
+- 🔄 **Cache Distribuído** - Estado sincronizado via Kafka
+- 📈 **Real-time Analytics** - Agregações em tempo real
+
+---
+
+## � Documentação
+
+### Documentos Principais
+
+- 📄 **GUIA_COMPLETO.md** - Guia detalhado do sistema
+- 📄 **QUICK_START.md** - Início rápido
+- 📄 **TESTING.md** - Cenários de teste
+- 📄 **STATUS.txt** - Status visual do sistema
+
+### Por Versão
+
+- 🐍 **Python:** [README.md](../../tree/python-version/README.md)
+- ☕ **Java:** [README.md](../../tree/java-version/java-version/README.md)
+
+---
+
+## 🛠️ Tecnologias
+
+### Versão Python
+- Python 3.8+
+- Flask
+- confluent-kafka
+- Docker & Docker Compose
+
+### Versão Java
+- Java 17+
+- Spring Boot 3.2.0
+- Spring Kafka
+- Maven
+- Lombok
+
+### Infraestrutura
+- Apache Kafka 3.6+
+- Zookeeper
+- Docker
+
+---
+
+## 🤝 Contribuindo
+
+Contribuições são bem-vindas! Por favor:
+
+1. Fork o projeto
+2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
+4. Push para a branch (`git push origin feature/AmazingFeature`)
+5. Abra um Pull Request
+
+---
+
+## � Licença
+
+Este projeto é open source e está disponível sob a [MIT License](LICENSE).
+
+---
+
+## 🌟 Branches
+
+- **`main`** - Este README e documentação geral
+- **`python-version`** - Implementação completa em Python
+- **`java-version`** - Implementação completa em Java
+
+---
+
+## 📞 Suporte
+
+Para dúvidas ou problemas:
+
+- 📖 Consulte a documentação em cada branch
+- 🐛 Abra uma [Issue](../../issues)
+- 💬 Veja a seção de troubleshooting nos READMEs
+
+---
+
+## 🎉 Comece Agora!
+
+**Escolha sua versão preferida:**
 
 ```bash
-./start.sh
+# Python - Rápido e simples
+git checkout python-version
+
+# Java - Robusto e escalável
+git checkout java-version
+cd java-version
 ```
 
-Isso irá:
-- ✅ Iniciar Kafka e Zookeeper
-- ✅ Criar o tópico compactado
-- ✅ Criar virtualenv (se necessário)
-- ✅ Instalar dependências
-- ✅ Enviar mensagens de teste
-- ✅ Iniciar a API REST
+**Siga o README da branch escolhida e comece a experimentar!**
 
-Para parar tudo:
+---
 
-```bash
-./stop.sh
-```
+**Desenvolvido com ☕ e 🐍 - Demonstrando o poder do Apache Kafka! 🚀**
 
-### 📚 Passo a Passo Manual
-
-Se preferir fazer manualmente:
-
-### 1️⃣ Pré-requisitos
-
-- Docker e Docker Compose instalados
-- Python 3.8+ instalado
-- VS Code (opcional, mas recomendado)
-
-### 2️⃣ Iniciar Kafka
-
-```bash
-docker-compose up -d
-```
-
-Verificar containers:
-```bash
-docker ps
-```
-
-### 3️⃣ Criar Tópico Compactado
-
-Tornar o script executável:
-```bash
-chmod +x create_topic.sh
-```
-
-Executar:
-```bash
-./create_topic.sh
-```
 
 **Alternativa manual:**
 ```bash
