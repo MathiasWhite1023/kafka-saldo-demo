@@ -1,0 +1,32 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: kafka-saldo-demo
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: consulta-saldo-java
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: true
+      properties:
+        partition.assignment.strategy: org.apache.kafka.clients.consumer.RangeAssignor
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+
+kafka:
+  topic:
+    name: contas
+    partitions: 1
+    replication-factor: 1
+
+logging:
+  level:
+    com.kafka.demo: INFO
+    org.apache.kafka: WARN
