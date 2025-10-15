@@ -1,65 +1,464 @@
-# 🚀 Kafka Saldo Demo
+# 🚀 Kafka Saldo Demo - Demonstração de Tópico Compactado
 
-Sistema de consulta de saldos usando **Apache Kafka com tópico compactado** + **API REST**.
+> **Projeto educacional demonstrando Apache Kafka com tópicos compactados (log compaction)**  
+> Implementado em **Python** e **Java** para diferentes casos de uso
 
-Demonstração completa de como usar Kafka como fonte de estado para aplicações, disponível em **duas implementações**: Python e Java.
+<div align="center">
 
----
+[![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python&logoColor=white)](https://github.com/MathiasWhite1023/kafka-saldo-demo/tree/python-version)
+[![Java](https://img.shields.io/badge/Java-17-orange?logo=openjdk&logoColor=white)](https://github.com/MathiasWhite1023/kafka-saldo-demo/tree/java-version)
+[![Kafka](https://img.shields.io/badge/Apache%20Kafka-3.x-black?logo=apache-kafka&logoColor=white)](https://kafka.apache.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-## 📌 Sobre o Projeto
-
-Este projeto demonstra o uso de **Apache Kafka com tópico compactado** (log compaction) como fonte de verdade para um sistema de consulta de saldos bancários.
-
-### 🎯 Conceito Principal
-
-O Kafka mantém apenas a **última mensagem** por chave (cliente_id) graças à compactação. Isso permite:
-
-- ✅ Reconstruir o estado completo consumindo o tópico do início
-- ✅ Manter estado atualizado em tempo real
-- ✅ Alta disponibilidade e tolerância a falhas
-- ✅ Escalabilidade horizontal
+</div>
 
 ---
 
-## 🌐 Duas Implementações Disponíveis
+## � Sobre o Projeto
 
-Este repositório contém **duas versões completas e funcionais**:
+Este repositório demonstra de forma **prática e didática** como o **Apache Kafka** resolve problemas reais usando **tópicos compactados** (_log compaction_). O conceito é simples, mas poderoso:
 
-### 🐍 Versão Python
-**Branch:** [`python-version`](../../tree/python-version)
+### 🎯 O Problema
+Você precisa manter o **estado atual** de milhares de contas bancárias, mas:
+- ❌ Não quer usar banco de dados tradicional
+- ❌ Precisa de histórico de mudanças (auditoria)
+- ❌ Deve ser resiliente a falhas
+- ❌ Precisa escalar horizontalmente
 
-- **Framework:** Flask
-- **Consumer:** confluent-kafka
-- **Porta API:** 5001
-- **Características:**
-  - ✅ Código simples e direto (~100 linhas)
-  - ✅ Rápido para prototipar
-  - ✅ Dashboard web interativo
-  - ✅ Producer interativo CLI
-  - ✅ Docker Compose incluído
+### ✅ A Solução: Kafka com Log Compaction
 
-**📖 [Ver documentação Python](../../tree/python-version/README.md)**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  TÓPICO KAFKA: "contas" (compactado)                        │
+├─────────────────────────────────────────────────────────────┤
+│  Key: cliente_001  →  {"saldo": 100.00, "timestamp": ...}  │
+│  Key: cliente_002  →  {"saldo": 250.00, "timestamp": ...}  │
+│  Key: cliente_001  →  {"saldo": 150.00, "timestamp": ...}  │  ← Sobrescreve anterior
+│  Key: cliente_003  →  {"saldo": 500.00, "timestamp": ...}  │
+│                                                             │
+│  Após compactação, Kafka mantém apenas:                    │
+│  ✅ cliente_001 → 150.00  (última atualização)             │
+│  ✅ cliente_002 → 250.00                                    │
+│  ✅ cliente_003 → 500.00                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 💡 Por Que Isso é Útil?
+
+1. **Event Sourcing Simplificado**: Eventos são a fonte de verdade
+2. **Reconstrução de Estado**: Reinicie o consumer e o estado é recuperado do Kafka
+3. **Sem Banco de Dados**: O Kafka É seu banco (para este caso de uso)
+4. **Auditoria**: Histórico completo de mudanças (antes da compactação)
+5. **Escalabilidade**: Múltiplos consumers podem processar independentemente
+
 
 ---
 
-### ☕ Versão Java
-**Branch:** [`java-version`](../../tree/java-version)
+## � Estrutura do Repositório
 
-- **Framework:** Spring Boot 3.2.0
-- **Consumer:** Spring Kafka
-- **Porta API:** 8081
-- **Características:**
-  - ✅ Arquitetura robusta e escalável
-  - ✅ Type-safe e testável
-  - ✅ Health check endpoint
-  - ✅ Logging estruturado
-  - ✅ Producer integrado
-  - ✅ CLI interativa opcional
-  - ✅ Pronto para produção
+Este repositório está organizado em **3 branches**, cada uma com propósito específico:
 
-**📖 [Ver documentação Java](../../tree/java-version/java-version/README.md)**
+### 📌 Branch: `main` (você está aqui)
+- README geral do projeto
+- Comparação entre versões Python e Java
+- Links para cada implementação
+- Overview de conceitos Kafka
+
+### 🐍 Branch: [`python-version`](https://github.com/MathiasWhite1023/kafka-saldo-demo/tree/python-version)
+**Implementação Python com Flask**
+
+```
+Ideal para:
+✅ Prototipagem rápida
+✅ Microserviços leves
+✅ APIs REST simples
+✅ Aprendizado de Kafka
+✅ Dashboards web
+```
+
+**Stack:**
+- Python 3.13
+- Flask 2.3.2 (API REST)
+- confluent-kafka (cliente Kafka)
+- Docker Compose
+- Dashboard HTML/JavaScript
+
+**Features:**
+- ✅ API REST (`/saldo/<id>`, `/saldos`)
+- ✅ Consumer em background (threading)
+- ✅ Producer interativo (CLI)
+- ✅ Dashboard web em tempo real
+- ✅ Scripts de automação (start.sh, stop.sh)
+
+[**📖 Ver README Python Completo →**](https://github.com/MathiasWhite1023/kafka-saldo-demo/blob/python-version/README.md)
 
 ---
+
+### ☕ Branch: [`java-version`](https://github.com/MathiasWhite1023/kafka-saldo-demo/tree/java-version)
+**Implementação Java com Spring Boot**
+
+```
+Ideal para:
+✅ Aplicações empresariais
+✅ Microserviços robustos
+✅ Alta concorrência
+✅ Produção enterprise
+✅ Integração Spring ecosystem
+```
+
+**Stack:**
+- Java 17
+- Spring Boot 3.2.0
+- Spring Kafka 3.1.0
+- Maven
+- Docker Compose
+
+**Features:**
+- ✅ REST API (`/saldo/{id}`, `/saldos`, `/health`)
+- ✅ @KafkaListener automático
+- ✅ ConcurrentHashMap thread-safe
+- ✅ Spring Dependency Injection
+- ✅ Configuração externalizada (application.yml)
+- ✅ Producer CLI + Batch
+
+[**📖 Ver README Java Completo →**](https://github.com/MathiasWhite1023/kafka-saldo-demo/blob/java-version/README.md)
+
+---
+
+## 🆚 Comparação: Python vs Java
+
+| Aspecto | 🐍 Python | ☕ Java |
+|---------|----------|---------|
+| **Complexidade** | Simples | Moderada |
+| **Linhas de código** | ~200 | ~400 |
+| **Startup** | Rápido (~1s) | Moderado (~3s) |
+| **Memória** | Leve (~50MB) | Moderado (~200MB) |
+| **Concorrência** | Threading | Nativa (ConcurrentHashMap) |
+| **Frameworks** | Flask (minimalista) | Spring Boot (completo) |
+| **Tipo de sistema** | Dinamicamente tipado | Estaticamente tipado |
+| **Manutenção** | Scripts simples | Arquitetura em camadas |
+| **Deploy** | Docker + Python | Docker + JAR |
+| **Uso recomendado** | Protótipos, MVPs | Produção enterprise |
+
+---
+
+## 📚 Conceitos Kafka Demonstrados
+
+Ambas as versões demonstram os mesmos conceitos fundamentais:
+
+### 1️⃣ **Tópico Compactado** (Log Compaction)
+```bash
+# Configuração do tópico
+cleanup.policy=compact
+min.compaction.lag.ms=60000  # Aguarda 60s antes de compactar
+```
+
+**Como funciona:**
+- Mensagens com mesma chave (key) sobrescrevem anteriores
+- Kafka mantém apenas o valor mais recente por chave
+- Garante estado atual + auditoria (antes da compactação)
+
+### 2️⃣ **Event Sourcing**
+```
+Eventos → Kafka → Estado Derivado
+          ↓
+    Fonte de Verdade
+```
+
+**Benefícios:**
+- ✅ Histórico completo
+- ✅ Replay de eventos
+- ✅ Auditoria nativa
+- ✅ Debugging facilitado
+
+### 3️⃣ **Reconstrução de Estado**
+```python
+# Ao iniciar, consumer lê TODO o tópico desde o início
+auto.offset.reset=earliest
+
+# Reconstrói estado em memória
+for mensagem in topico:
+    estado[mensagem.key] = mensagem.value
+```
+
+### 4️⃣ **Consumer Groups**
+```
+┌─────────────────────────────────────┐
+│  Kafka Topic: "contas"              │
+│  ├── Partition 0 → Consumer 1       │
+│  ├── Partition 1 → Consumer 2       │
+│  └── Partition 2 → Consumer 3       │
+│                                     │
+│  Group: "saldo-service"             │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Clone o Repositório
+```bash
+git clone https://github.com/MathiasWhite1023/kafka-saldo-demo.git
+cd kafka-saldo-demo
+```
+
+### 2. Escolha Sua Versão
+
+#### 🐍 Python
+```bash
+git checkout python-version
+# Siga o README da branch python-version
+```
+
+#### ☕ Java
+```bash
+git checkout java-version
+# Siga o README da branch java-version
+```
+
+### 3. Infraestrutura (Ambas Versões)
+```bash
+# Subir Kafka + Zookeeper
+docker-compose up -d
+
+# Criar tópico compactado
+./create_topic.sh
+```
+
+---
+
+## 🎯 Casos de Uso Reais
+
+### 📊 Aplicações deste Padrão
+
+1. **Saldo de Contas** (este projeto)
+   - Mantém saldo atual de milhares de contas
+   - Auditoria de transações
+   - Reconstrução de estado
+
+2. **Cache Distribuído**
+   - Key-Value store baseado em Kafka
+   - Sem Redis/Memcached
+   - Persistente e replicado
+
+3. **Configuração de Microserviços**
+   - Cada microserviço consome configurações
+   - Atualização em tempo real
+   - Single source of truth
+
+4. **Estado de Sessão**
+   - Sessões de usuário em Kafka
+   - Failover automático
+   - Compartilhado entre instâncias
+
+5. **Inventory/Estoque**
+   - Quantidade de produtos
+   - Atualização em tempo real
+   - Histórico de mudanças
+
+---
+
+## 🔬 Experimentos Práticos
+
+Ambas as versões permitem você experimentar:
+
+### Teste 1: Compactação em Ação
+```bash
+# 1. Produzir múltiplas mensagens para mesmo cliente
+# Mensagem 1: cliente_001 → saldo: 100.00
+# Mensagem 2: cliente_001 → saldo: 200.00
+# Mensagem 3: cliente_001 → saldo: 300.00
+
+# 2. Aguardar 60s (min.compaction.lag.ms)
+
+# 3. Consumir desde o início
+# Resultado: Apenas última mensagem (300.00)
+```
+
+### Teste 2: Reconstrução de Estado
+```bash
+# 1. Parar consumer
+# 2. Produzir novas mensagens
+# 3. Reiniciar consumer
+# Resultado: Estado reconstruído com TODAS mensagens
+```
+
+### Teste 3: Múltiplos Consumers
+```bash
+# 1. Iniciar Consumer 1 → Group: "app1"
+# 2. Iniciar Consumer 2 → Group: "app2"
+# 3. Produzir mensagem
+# Resultado: AMBOS recebem (grupos diferentes)
+```
+
+---
+
+## 📖 Documentação Completa
+
+### 🐍 Python Version
+- [**README Completo**](https://github.com/MathiasWhite1023/kafka-saldo-demo/blob/python-version/README.md)
+- Conceitos Kafka explicados
+- Código comentado linha por linha
+- Guia de instalação
+- Troubleshooting
+- Dashboard web
+
+### ☕ Java Version
+- [**README Completo**](https://github.com/MathiasWhite1023/kafka-saldo-demo/blob/java-version/README.md)
+- Arquitetura Spring Boot
+- Spring Kafka configuração
+- Código comentado
+- Deploy em produção
+- Métricas e health checks
+
+---
+
+## 🛠️ Arquitetura Geral
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                      KAFKA CLUSTER                             │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Topic: "contas" (compacted)                             │  │
+│  │  ├── Partition 0 → [msg1, msg2, msg3...]                 │  │
+│  │  ├── Partition 1 → [msg4, msg5, msg6...]                 │  │
+│  │  └── Partition 2 → [msg7, msg8, msg9...]                 │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────┘
+                       ↑                    ↓
+                   Produz               Consome
+                       │                    │
+         ┌─────────────┴────────┬──────────┴──────────┐
+         │                      │                      │
+    ┌────▼─────┐          ┌────▼─────┐          ┌────▼─────┐
+    │ Producer │          │Consumer 1│          │Consumer 2│
+    │   CLI    │          │  (API)   │          │ (Worker) │
+    └──────────┘          └──────────┘          └──────────┘
+                               │
+                          ┌────▼─────┐
+                          │ In-Memory│
+                          │  State   │
+                          │  (Map)   │
+                          └──────────┘
+                               │
+                          ┌────▼─────┐
+                          │REST API  │
+                          │Endpoints │
+                          └──────────┘
+```
+
+---
+
+## 🏆 Aprendizados Principais
+
+### 1. Kafka Não é Só Messaging
+- ✅ É um **log distribuído**
+- ✅ É uma **fonte de verdade**
+- ✅ É um **storage durável**
+
+### 2. Log Compaction é Poderoso
+- ✅ Mantém estado atual
+- ✅ Garante auditoria
+- ✅ Elimina necessidade de banco (em alguns casos)
+
+### 3. Event Sourcing na Prática
+- ✅ Eventos → Estado
+- ✅ Replay de eventos
+- ✅ Debugging facilitado
+
+### 4. Escolha da Tecnologia Importa
+- **Python**: Prototipagem rápida, MVPs, simplicidade
+- **Java**: Produção enterprise, concorrência, robustez
+
+---
+
+## 🔧 Tecnologias Utilizadas
+
+### Infraestrutura
+- **Apache Kafka** - Message broker / Event streaming
+- **Zookeeper** - Coordenação do cluster Kafka
+- **Docker Compose** - Orquestração de containers
+
+### Python Version
+- **Python 3.13**
+- **Flask 2.3.2** - Framework web
+- **confluent-kafka** - Cliente Kafka
+- **python-dotenv** - Variáveis de ambiente
+
+### Java Version
+- **Java 17**
+- **Spring Boot 3.2.0** - Framework aplicação
+- **Spring Kafka 3.1.0** - Integração Kafka
+- **Lombok** - Redução boilerplate
+- **Maven** - Build tool
+
+---
+
+## 📈 Próximos Passos
+
+### Para Aprendizado
+1. ✅ Clone o repo e teste ambas versões
+2. ✅ Experimente os testes práticos
+3. ✅ Modifique o código e veja o que acontece
+4. ✅ Leia os READMEs completos de cada branch
+
+### Para Produção
+1. Configure múltiplas partições
+2. Adicione métricas (Prometheus)
+3. Implemente health checks robustos
+4. Configure replicação do Kafka
+5. Adicione testes automatizados
+6. Configure CI/CD
+
+---
+
+## 📝 Licença
+
+Este projeto é licenciado sob a MIT License - veja o arquivo [LICENSE](LICENSE) para detalhes.
+
+---
+
+## 👨‍💻 Autor
+
+**Matheus White**
+- GitHub: [@MathiasWhite1023](https://github.com/MathiasWhite1023)
+
+---
+
+## 🙏 Agradecimentos
+
+- **Apache Kafka** pela ferramenta incrível
+- **Confluent** pela documentação excelente
+- **Spring Team** pelo Spring Kafka
+- Comunidade Open Source
+
+---
+
+## 🔗 Links Úteis
+
+### Documentação Oficial
+- [Apache Kafka](https://kafka.apache.org/documentation/)
+- [Kafka Log Compaction](https://kafka.apache.org/documentation/#compaction)
+- [Confluent Kafka](https://docs.confluent.io/)
+- [Spring Kafka](https://spring.io/projects/spring-kafka)
+
+### Tutoriais
+- [Kafka in 5 Minutes](https://kafka.apache.org/quickstart)
+- [Spring Boot + Kafka](https://spring.io/guides/gs/messaging-kafka/)
+- [confluent-kafka Python](https://docs.confluent.io/kafka-clients/python/current/overview.html)
+
+---
+
+<div align="center">
+
+### 🌟 Se este projeto te ajudou, deixe uma ⭐!
+
+**[Ver Versão Python 🐍](https://github.com/MathiasWhite1023/kafka-saldo-demo/tree/python-version)** | 
+**[Ver Versão Java ☕](https://github.com/MathiasWhite1023/kafka-saldo-demo/tree/java-version)**
+
+</div>
+
 
 ## 🏗️ Arquitetura
 
